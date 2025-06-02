@@ -1,4 +1,4 @@
-"use client"
+"use client";
 
 import React, { useEffect, useState } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
@@ -7,11 +7,29 @@ import { db } from "../config/firebase";
 export default function Home() {
   const [data, setData] = useState([]);
 
+  // Updated thresholds based on WHO/EPA standards
+  const THRESHOLDS = {
+    // PM2.5 (µg/m³)
+    DUST: {
+      GOOD: 12,
+      MODERATE: 35,
+      UNHEALTHY: 55,
+      VERY_UNHEALTHY: 150,
+      HAZARDOUS: 250
+    },
+    // CO₂ (ppm)
+    GAS: {
+      GOOD: 300,
+      MODERATE: 600,
+      UNHEALTHY: 900,
+      VERY_UNHEALTHY: 1200
+    }
+  };
+
   useEffect(() => {
     const unsubscribe = onSnapshot(collection(db, "sensor_data"), (snapshot) => {
       const docs = snapshot.docs.map(doc => {
         const data = doc.data();
-        console.log("DATA:", data);
         return { id: doc.id, ...data };
       });
       setData(docs.reverse());
@@ -20,11 +38,11 @@ export default function Home() {
   }, []);
 
   const downloadCSV = () => {
-    const headers = ["Level Gas", "Level Debu", "Status Kipas", "Timestamp"];
+    const headers = ["Level Gas (ppm)", "Level Debu (µg/m³)", "Status Udara", "Timestamp"];
     const rows = data.map(entry => [
       entry.level_gas ?? "",
       entry.level_debu ?? "",
-      entry.status_kipas_angin ? "ON" : "OFF",
+      getStatusText(entry),
       formatTimestamp(entry.timestamp)
     ]);
 
@@ -41,7 +59,6 @@ export default function Home() {
 
   const formatTimestamp = (value) => {
     if (!value) return "-";
-
     try {
       if (typeof value.toDate === "function") {
         return value.toDate().toLocaleString();
@@ -54,28 +71,112 @@ export default function Home() {
     }
   };
 
+  const getStatusColor = (entry) => {
+    if (!entry.tampilkan_status_udara) return "bg-gray-400"; // Fan OFF
+    
+    const { level_gas, level_debu } = entry;
+    
+    // Check dust levels first (more hazardous)
+    if (level_debu >= THRESHOLDS.DUST.HAZARDOUS || level_gas >= THRESHOLDS.GAS.VERY_UNHEALTHY) {
+      return "bg-red-600"; // Emergency
+    }
+    if (level_debu >= THRESHOLDS.DUST.VERY_UNHEALTHY || level_gas >= THRESHOLDS.GAS.UNHEALTHY) {
+      return "bg-orange-500"; // Very Unhealthy
+    }
+    if (level_debu >= THRESHOLDS.DUST.UNHEALTHY || level_gas >= THRESHOLDS.GAS.MODERATE) {
+      return "bg-yellow-500"; // Unhealthy
+    }
+    if (level_debu >= THRESHOLDS.DUST.MODERATE) {
+      return "bg-blue-400"; // Moderate
+    }
+    return "bg-green-500"; // Good
+  };
+
+  const getStatusText = (entry) => {
+    if (!entry.tampilkan_status_udara) return "OFF";
+    
+    const { level_gas, level_debu } = entry;
+    
+    if (level_debu >= THRESHOLDS.DUST.HAZARDOUS || level_gas >= THRESHOLDS.GAS.VERY_UNHEALTHY) {
+      return "DARURAT";
+    }
+    if (level_debu >= THRESHOLDS.DUST.VERY_UNHEALTHY || level_gas >= THRESHOLDS.GAS.UNHEALTHY) {
+      return "SANGAT BURUK";
+    }
+    if (level_debu >= THRESHOLDS.DUST.UNHEALTHY || level_gas >= THRESHOLDS.GAS.MODERATE) {
+      return "BURUK";
+    }
+    if (level_debu >= THRESHOLDS.DUST.MODERATE) {
+      return "SEDANG";
+    }
+    return "BAIK";
+  };
+
+  const getRowClass = (level, type) => {
+    const thresholds = type === 'gas' ? THRESHOLDS.GAS : THRESHOLDS.DUST;
+    
+    if (type === 'dust') {
+      if (level >= thresholds.HAZARDOUS) return "font-bold text-red-700";
+      if (level >= thresholds.VERY_UNHEALTHY) return "text-red-600";
+      if (level >= thresholds.UNHEALTHY) return "text-orange-500";
+      if (level >= thresholds.MODERATE) return "text-yellow-600";
+    } else {
+      if (level >= thresholds.VERY_UNHEALTHY) return "font-bold text-red-700";
+      if (level >= thresholds.UNHEALTHY) return "text-red-600";
+      if (level >= thresholds.MODERATE) return "text-orange-500";
+    }
+    return "text-gray-700";
+  };
+
   return (
-    <main className="min-h-screen bg-gradient-to-br from-blue-100 to-white p-8 font-sans">
+    <main className="min-h-screen bg-gradient-to-br from-blue-50 to-white p-8 font-sans">
       <div className="max-w-6xl mx-auto">
-        <h1 className="text-4xl font-extrabold text-center text-blue-800 mb-8">
+        <h1 className="text-4xl font-extrabold text-center text-blue-800 mb-6">
           Dashboard Air Purifier RPL IoT
         </h1>
 
-        <div className="flex justify-end mb-4">
+        {/* Threshold Legend */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <div className="flex items-center justify-center bg-green-100 px-3 py-2 rounded">
+            <div className="w-3 h-3 rounded-full bg-green-500 mr-2"></div>
+            <span className="text-xs">BAIK</span>
+          </div>
+          <div className="flex items-center justify-center bg-blue-100 px-3 py-2 rounded">
+            <div className="w-3 h-3 rounded-full bg-blue-400 mr-2"></div>
+            <span className="text-xs">SEDANG</span>
+          </div>
+          <div className="flex items-center justify-center bg-yellow-100 px-3 py-2 rounded">
+            <div className="w-3 h-3 rounded-full bg-yellow-500 mr-2"></div>
+            <span className="text-xs">BURUK</span>
+          </div>
+          <div className="flex items-center justify-center bg-orange-100 px-3 py-2 rounded">
+            <div className="w-3 h-3 rounded-full bg-orange-500 mr-2"></div>
+            <span className="text-xs">SANGAT BURUK</span>
+          </div>
+          <div className="flex items-center justify-center bg-red-100 px-3 py-2 rounded">
+            <div className="w-3 h-3 rounded-full bg-red-600 mr-2"></div>
+            <span className="text-xs">DARURAT</span>
+          </div>
+        </div>
+
+        <div className="flex justify-between items-center mb-4">
+          <div className="text-sm text-gray-600">
+            <span className="font-medium">Threshold:</span> Debu: {THRESHOLDS.DUST.MODERATE}µg/m³ | Gas: {THRESHOLDS.GAS.MODERATE}ppm
+          </div>
           <button
             onClick={downloadCSV}
-            className="bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded shadow">
+            className="bg-green-600 hover:bg-green-700 text-white font-medium px-4 py-2 rounded shadow transition-colors">
             ⬇ Download CSV
           </button>
         </div>
 
         <div className="overflow-x-auto bg-white rounded-xl shadow-md">
-          <table className="w-full text-sm text-center text-gray-700">
+          <table className="w-full text-sm text-center">
             <thead className="bg-blue-600 text-white text-xs uppercase">
               <tr>
-                <th className="py-3 px-4">Level Gas</th>
-                <th className="py-3 px-4">Level Debu</th>
-                <th className="py-3 px-4">Status Kipas</th>
+                <th className="py-3 px-4">Level Gas (ppm)</th>
+                <th className="py-3 px-4">Level Debu (µg/m³)</th>
+                <th className="py-3 px-4">Status Udara</th>
                 <th className="py-3 px-4">Timestamp</th>
               </tr>
             </thead>
@@ -88,17 +189,19 @@ export default function Home() {
                 </tr>
               ) : (
                 data.map((entry, i) => (
-                  <tr key={entry.id} className={`${i % 2 === 0 ? "bg-gray-100" : "bg-white"}`}>
-                    <td className="py-2 px-4">{entry.level_gas}</td>
-                    <td className="py-2 px-4">{entry.level_debu}</td>
-                    <td className="py-2 px-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-semibold text-white ${
-                        entry.status_kipas_angin ? "bg-green-500" : "bg-red-500"
-                      }`}>
-                        {entry.status_kipas_angin ? "ON" : "OFF"}
+                  <tr key={entry.id} className={`${i % 2 === 0 ? "bg-gray-50" : "bg-white"} hover:bg-blue-50`}>
+                    <td className={`py-3 px-4 ${getRowClass(entry.level_gas, 'gas')}`}>
+                      {entry.level_gas}
+                    </td>
+                    <td className={`py-3 px-4 ${getRowClass(entry.level_debu, 'dust')}`}>
+                      {entry.level_debu}
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className={`px-3 py-1 rounded-full text-xs font-semibold text-white ${getStatusColor(entry)}`}>
+                        {getStatusText(entry)}
                       </span>
                     </td>
-                    <td className="py-2 px-4 text-xs text-gray-600">
+                    <td className="py-3 px-4 text-xs text-gray-600">
                       {formatTimestamp(entry.timestamp)}
                     </td>
                   </tr>
