@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { collection, onSnapshot } from "firebase/firestore";
 import { db } from "../config/firebase";
 
@@ -8,6 +8,7 @@ export default function Home() {
   const [data, setData] = useState([]);
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
+  const [sortOrder, setSortOrder] = useState("desc");
 
   const THRESHOLDS = {
     DUST: { GOOD: 12, MODERATE: 35, UNHEALTHY: 55, VERY_UNHEALTHY: 150, HAZARDOUS: 250 },
@@ -20,33 +21,50 @@ export default function Home() {
         const data = doc.data();
         return { id: doc.id, ...data };
       });
-      setData(docs.reverse());
+      setData(docs);
     });
     return () => unsubscribe();
   }, []);
 
-  const filterByDate = (data) => {
-  if (!startDate && !endDate) return data;
-  const start = startDate ? new Date(startDate) : null;
-  const end = endDate ? new Date(endDate) : null;
+  const handleSort = () => {
+    setSortOrder(sortOrder === "asc" ? "desc" : "asc");
+  };
 
-  if (start) start.setHours(0, 0, 0, 0);
-  if (end) end.setHours(23, 59, 59, 999);
-  return data.filter(entry => {
-    const timestamp = entry.timestamp?.toDate ? entry.timestamp.toDate() : new Date(entry.timestamp);
-    if (!timestamp || isNaN(timestamp.getTime())) return false;
-    return (!start || timestamp >= start) && (!end || timestamp <= end);
-  });
-};
+  const filteredData = useMemo(() => {
+    if (!startDate && !endDate) return data;
+
+    const start = startDate ? new Date(startDate) : null;
+    const end = endDate ? new Date(endDate) : null;
+
+    if (start) start.setHours(0, 0, 0, 0);
+    if (end) end.setHours(23, 59, 59, 999);
+
+    return data.filter(entry => {
+      const timestamp = entry.timestamp?.toDate ? entry.timestamp.toDate() : new Date(0);
+      if (isNaN(timestamp.getTime())) return false;
+      return (!start || timestamp >= start) && (!end || timestamp <= end);
+    });
+  }, [data, startDate, endDate]);
+
+  const displayedData = useMemo(() => {
+    const dataToSort = filteredData; // Use the already filtered data
+    return [...dataToSort].sort((a, b) => {
+      const dateA = a.timestamp?.toDate ? a.timestamp.toDate() : new Date(0);
+      const dateB = b.timestamp?.toDate ? b.timestamp.toDate() : new Date(0);
+      if (sortOrder === "asc") {
+        return dateA - dateB;
+      }
+      return dateB - dateA; // Descending by default
+    });
+  }, [filteredData, sortOrder]);
 
 
   const downloadCSV = () => {
-    const headers = ["Level Gas", "Level Debu", "Status Kipas", "Timestamp"];
-    const filteredData = filterByDate(data);
-    const rows = filteredData.map(entry => [
+    const headers = ["Level Gas", "Level Debu", "Status Udara", "Timestamp"];
+    const rows = displayedData.map(entry => [
       entry.level_gas ?? "",
       entry.level_debu ?? "",
-      entry.status_kipas_angin ? "ON" : "OFF",
+      getStatusText(entry),
       formatTimestamp(entry.timestamp)
     ]);
     const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(row => row.join(","))].join("\n");
@@ -104,7 +122,6 @@ export default function Home() {
     return "text-gray-700";
   };
 
-  const filteredData = filterByDate(data);
 
   return (
     <main className="min-h-screen bg-gradient-to-br from-blue-100 to-white p-8 font-sans">
@@ -157,18 +174,20 @@ export default function Home() {
                 <th className="py-3 px-4">Level Gas (ppm)</th>
                 <th className="py-3 px-4">Level Debu (µg/m³)</th>
                 <th className="py-3 px-4">Status Udara</th>
-                <th className="py-3 px-4">Timestamp</th>
+                <th className="py-3 px-4 cursor-pointer hover:bg-blue-700 transition-colors" onClick={handleSort}>
+                  Timestamp {sortOrder === 'asc' ? '▲' : '▼'}
+                </th>
               </tr>
             </thead>
             <tbody>
-              {filteredData.length === 0 ? (
+              {displayedData.length === 0 ? (
                 <tr>
                   <td colSpan="4" className="py-4 text-gray-400 italic">
-                    Belum ada data sensor...
+                    Belum ada data pada rentang tanggal ini...
                   </td>
                 </tr>
               ) : (
-                filteredData.map((entry, i) => (
+                displayedData.map((entry, i) => (
                   <tr key={entry.id} className={`${i % 2 === 0 ? "bg-gray-100" : "bg-white"}`}>
                     <td className={`py-2 px-4 ${getRowClass(entry.level_gas, 'gas')}`}>{entry.level_gas}</td>
                     <td className={`py-2 px-4 ${getRowClass(entry.level_debu, 'dust')}`}>{entry.level_debu}</td>
